@@ -1,0 +1,126 @@
+---
+# The role uses install.sh as the single source of truth (packages, distributions,
+# hold, rollback). Ansible adds: the config from variables, idempotency (install.sh
+# runs only when the kit or the config changed) and the confirmation from a NEW
+# SSH connection.
+
+- name: Python 3 for Ansible modules (raw, before gathering facts)
+  ansible.builtin.raw: |
+    command -v python3 >/dev/null 2>&1 && exit 0
+    if command -v apt-get >/dev/null 2>&1; then
+      apt-get update -qq && DEBIAN_FRONTEND=noninteractive apt-get install -y -qq python3 >/dev/null
+    elif command -v dnf >/dev/null 2>&1; then dnf -y -q install python3
+    elif command -v yum >/dev/null 2>&1; then yum -y -q install python3
+    elif command -v zypper >/dev/null 2>&1; then zypper -n -q install python3
+    elif command -v pacman >/dev/null 2>&1; then pacman -Sy --noconfirm --needed python
+    else echo "no python3 and no known package manager"; exit 1
+    fi
+    echo PYTHON_INSTALLED
+  register: bl_py
+  changed_when: "'PYTHON_INSTALLED' in bl_py.stdout"
+
+- name: Gather facts (minimal)
+  ansible.builtin.setup:
+    gather_subset: [min]
+
+# Ansible reads network facts (the server addresses) with the 'ip' command;
+# minimal systems may not have it yet - install.sh would only add it later
+- name: iproute (for network facts)
+  ansible.builtin.package:
+    name: "{{ 'iproute' if ansible_os_family == 'RedHat' else 'iproute2' }}"
+    state: present
+
+- name: Gather facts (network)
+  ansible.builtin.setup:
+    gather_subset: [min, network]
+
+- name: Check - systemd is required
+  ansible.builtin.assert:
+    that: ansible_service_mgr == 'systemd'
+    fail_msg: "blocklist-active requires systemd (found: {{ ansible_service_mgr }})"
+    quiet: true
+
+- name: Address Ansible connects from (held during the installation)
+  ansible.builtin.shell: 'echo "${SSH_CONNECTION%% *}"'
+  become: false
+  register: bl_client
+  changed_when: false
+  check_mode: false
+
+- name: Kit directory on the server
+  ansible.builtin.file:
+    path: "{{ blocklist_src_dir }}"
+    state: directory
+    mode: "0700"
+
+- name: Kit (install.sh, files/) on the server
+  ansible.builtin.copy:
+    src: "{{ blocklist_kit_dir }}/{{ item }}"
+    dest: "{{ blocklist_src_dir }}/"
+    mode: preserve
+  loop: [install.sh, uninstall.sh, VERSION, files]
+  register: bl_kit
+
+- name: /etc/blocklist.conf
+  ansible.builtin.template:
+    src: blocklist.conf.j2
+    dest: /etc/blocklist.conf
+    mode: "0600"
+    backup: true
+  register: bl_conf
+
+- name: Are the blocks loaded
+  ansible.builtin.command: nft list table inet abuseblock
+  register: bl_tables
+  changed_when: false
+  failed_when: false
+  check_mode: false
+
+- name: Arguments for install.sh
+  ansible.builtin.set_fact:
+    bl_args: >-
+      {{ ['bash', blocklist_src_dir ~ '/install.sh', '--config', '/etc/blocklist.conf',
+          '--hold', blocklist_hold | string, '--rollback', blocklist_rollback | string]
+         + (['--hold-ip', bl_client.stdout] if (bl_client.stdout | default('')) | length > 0 else [])
+         + ([] if blocklist_bootstrap else ['--no-bootstrap'])
+         + ([] if blocklist_backup else ['--no-backup']) }}
+
+- name: Install (install.sh)
+  ansible.builtin.command:
+    argv: "{{ bl_args }}"
+  register: bl_install
+  when: >-
+    bl_kit is changed or bl_conf is changed or blocklist_force_install | bool
+    or bl_tables.rc != 0
+
+- name: Installation report
+  ansible.builtin.debug:
+    msg: "{{ bl_install.stdout_lines[-30:] }}"
+  when: bl_install is changed
+
+- name: Confirmation from a NEW SSH connection
+  when:
+    - bl_install is changed
+    - blocklist_rollback | int > 0
+    - blocklist_confirm | bool
+  block:
+    - name: Waiting for the address hold to expire
+      ansible.builtin.pause:
+        seconds: "{{ blocklist_hold | int + 2 }}"
+
+    - name: Closing the existing SSH connection (ControlPersist) - the next task opens a new one
+      ansible.builtin.meta: reset_connection
+
+    - name: blocklist confirm
+      ansible.builtin.command: /usr/local/sbin/blocklist confirm
+      register: bl_confirm
+      changed_when: "'CONFIRMED' in bl_confirm.stdout"
+      ignore_unreachable: true
+
+    - name: The new connection does not get through
+      ansible.builtin.fail:
+        msg: >-
+          A new SSH connection from {{ bl_client.stdout }} DOES NOT GET THROUGH - the address is probably blocked.
+          The rollback on the server disables the blocks within {{ blocklist_rollback }}s at most.
+          Add the address to blocklist_owner_ips and run the playbook again.
+      when: bl_confirm is unreachable

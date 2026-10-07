@@ -1,0 +1,15 @@
+---
+galaxy_info:
+  role_name: blocklist
+  author: Vladimir Cicovic
+  description: nftables blocks (geo, attackers, proxy/Tor) with verification before apply and rollback
+  license: see the repository
+  min_ansible_version: "2.14"
+  platforms:
+    - name: Debian
+      versions: [bookworm, trixie]
+    - name: Ubuntu
+      versions: [jammy, noble, resolute]
+    - name: EL
+      versions: ["9", "10"]
+dependencies: []

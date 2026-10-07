@@ -1,0 +1,7 @@
+# The scripts run on Linux - always LF, even when cloned on Windows.
+* text=auto eol=lf
+*.ps1 text eol=crlf
+*.png binary
+*.tgz binary
+*.tar.gz binary
+*.run binary

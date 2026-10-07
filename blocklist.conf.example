@@ -1,0 +1,53 @@
+# /etc/blocklist.conf - blocklist-active configuration
+# The only place for machine-specific values.
+# Read by the shell (source) and by Python (/root/geoip/config.py) - so KEY="value" only.
+# After a change: blocklist update rebuild   (regenerates the lists without downloading)
+
+# Site checked after every change of the blocks. Redirects (301/302) are followed;
+# the final answer must be 2xx, otherwise the blocks are rolled back.
+# Empty = no site check (a server without a website).
+SITE_URL="https://www.example.com/"
+
+# Port sshd listens on. Empty = detected (ssh.socket, then sshd -T).
+SSH_PORT=""
+
+# Public IPv4 addresses of THIS server - they must never end up on a block list.
+# Empty = the installer writes the interface addresses. Behind NAT (AWS, GCP) add the public one.
+SERVER_IPS=""
+
+# Administrator addresses. Countries in WHITELIST_CC pass anyway; this is an extra
+# safety belt for addresses outside those countries. Example: "203.0.113.10 198.51.100.7"
+OWNER_IPS=""
+
+# Countries to block (ISO codes as used by ipdeny.com), on all ports.
+COUNTRIES="ir ru cn br co bg ro sc"
+
+# Countries that win over ALL blocks (including the attacker lists).
+WHITELIST_CC="ba"
+
+# --- off-host notifications (all optional) ---
+# ntfy.sh: create a secret topic and subscribe to it in the app
+NOTIFY_NTFY_URL=""
+# Telegram bot: token from @BotFather and the chat id
+NOTIFY_TELEGRAM_TOKEN=""
+NOTIFY_TELEGRAM_CHAT=""
+# e-mail (needs a local 'mail' or 'sendmail')
+NOTIFY_EMAIL=""
+
+# --- configuration snapshot (daily, /var/backups/server-config) ---
+# extra paths, for example site content: "/var/www/html /etc/php"
+BACKUP_EXTRA=""
+BACKUP_KEEP="14"
+
+# --- advanced (the defaults are tested) ---
+# LIMIT_404="50"          # this many 404s within 24 h from one address = a scanner
+# SEEN_DAYS="180"         # how long attackers from own logs are remembered
+# MIN_ABUSE="20000"       # minimum intervals; fewer = silently truncated list, not applied
+# MIN_PROXY="15000"
+# MIN_GEO="100"
+# MIN_RATIO="0.5"         # a new list must not fall below 50% of the current one
+# STALE_DAYS="3"          # health reports when the lists were not refreshed for this many days
+# GUARD_MARK="0x08000000" # packet mark bit for held addresses (change only on a conflict)
+# AUTH_LOGS="/var/log/auth.log* /var/log/secure*"
+# WEB_LOGS="/var/log/nginx/*access*.log* /var/log/apache2/*access*.log* /var/log/httpd/*access_log*"
+# LIST_CACHE_DIR=""       # cache for downloaded lists (tests, mirrors); empty = no cache

@@ -1,0 +1,10 @@
+[Unit]
+Description=Blocklist: daily configuration snapshot
+
+[Timer]
+OnCalendar=*-*-* 03:10:00
+RandomizedDelaySec=900
+Persistent=true
+
+[Install]
+WantedBy=timers.target

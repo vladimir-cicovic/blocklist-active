@@ -1,0 +1,4 @@
+#!/bin/sh
+# Protection status at SSH login. Quiet when all is well (prints a short line).
+[ -x /usr/local/sbin/blocklist ] || exit 0
+exec /usr/local/sbin/blocklist motd

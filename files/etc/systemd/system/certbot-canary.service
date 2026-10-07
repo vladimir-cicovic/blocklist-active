@@ -1,0 +1,8 @@
+[Unit]
+Description=Certificate renewal dry run (early failure detection)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+ExecStart=/usr/local/sbin/certbot-canary.sh

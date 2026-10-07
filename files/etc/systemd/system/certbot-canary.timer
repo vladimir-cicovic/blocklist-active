@@ -1,0 +1,10 @@
+[Unit]
+Description=Weekly certificate renewal dry run
+
+[Timer]
+OnCalendar=Mon *-*-* 03:30:00
+RandomizedDelaySec=1800
+Persistent=true
+
+[Install]
+WantedBy=timers.target

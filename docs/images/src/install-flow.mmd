@@ -1,0 +1,24 @@
+%%{init: {"theme": "base", "sequence": {"mirrorActors": false, "actorMargin": 70, "messageMargin": 32, "noteMargin": 12, "boxMargin": 8}, "themeVariables": {"fontFamily": "Helvetica, Arial, sans-serif", "fontSize": "15px", "actorBkg": "#eef3fb", "actorBorder": "#4a6fa5", "actorTextColor": "#1d2733", "signalColor": "#3a4452", "signalTextColor": "#1d2733", "noteBkgColor": "#fff4d6", "noteBorderColor": "#c99a2e", "noteTextColor": "#3d2f0b", "altSectionBkgColor": "#f7f9fc", "labelBoxBkgColor": "#eef3fb", "labelBoxBorderColor": "#4a6fa5", "labelTextColor": "#1d2733", "loopTextColor": "#1d2733"}}}%%
+sequenceDiagram
+    autonumber
+    participant W as Workstation<br/>deploy.sh, PowerShell or Ansible
+    participant S as Server<br/>install.sh
+    participant K as nftables<br/>kernel
+
+    W->>S: SSH probe: the server reports the client address (SSH_CONNECTION)
+    W->>S: upload the kit and blocklist.conf
+    W->>S: install.sh --hold-ip CLIENT --hold 30 --rollback 600
+    S->>K: create blocklist_guard and put CLIENT into the hold set
+    S->>S: arm the rollback timer (600 s)
+    S->>K: download, verify and load the block lists
+    Note over S,K: CLIENT passes every block,<br/>even if it is on one of the lists
+    S->>K: shorten the hold to 30 s
+    S-->>W: installation finished
+    Note over W: wait until the hold expires
+    W->>S: NEW SSH connection - the real rules apply now
+    alt the connection gets through
+        S->>S: blocklist confirm stops the rollback timer
+        S-->>W: CONFIRMED - the blocks stay in place
+    else the connection is dropped
+        Note over S,K: after 600 s the rollback removes the blocks<br/>and sets the "disabled" flag - access is back
+    end

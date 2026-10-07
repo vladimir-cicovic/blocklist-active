@@ -1,0 +1,12 @@
+[Unit]
+Description=Blocklist: refresh the lists (%i)
+After=network-online.target blocklist.service
+Wants=network-online.target
+OnFailure=blocklist-failed@%i.service
+
+[Service]
+Type=oneshot
+ExecStart=/usr/local/sbin/blocklist-update.sh %i
+TimeoutStartSec=2700
+Nice=10
+IOSchedulingClass=idle

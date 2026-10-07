@@ -1,0 +1,10 @@
+---
+# blocklist-active: nftables blocks (geo, attackers, proxy) on the 'blocklist' group.
+#   ansible-playbook site.yml                      (inventory.ini from ansible.cfg)
+#   ansible-playbook -i inventory.ini site.yml --limit web1
+- name: blocklist-active
+  hosts: blocklist
+  become: true
+  gather_facts: false   # the role makes sure python3 exists first, then gathers facts
+  roles:
+    - blocklist

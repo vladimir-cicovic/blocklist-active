@@ -1,0 +1,29 @@
+---
+# Where the repository (install.sh, files/) lives on the control node.
+blocklist_kit_dir: "{{ playbook_dir }}/.."
+# Where the kit is copied on the server.
+blocklist_src_dir: /usr/local/src/blocklist-kit
+
+# --- /etc/blocklist.conf ---
+blocklist_site_url: ""          # empty = no site check
+blocklist_ssh_port: ""          # empty = detected automatically
+blocklist_server_ips: []        # empty = interface addresses (ansible_all_ipv4_addresses)
+blocklist_owner_ips: []
+blocklist_countries: [ir, ru, cn, br, co, bg, ro, sc]
+blocklist_whitelist_cc: [ba]
+blocklist_notify_ntfy_url: ""
+blocklist_notify_telegram_token: ""
+blocklist_notify_telegram_chat: ""
+blocklist_notify_email: ""
+blocklist_backup_extra: []
+blocklist_backup_keep: 14
+# Extra keys (LIMIT_404, MIN_ABUSE, LIST_CACHE_DIR...): {KEY: value}
+blocklist_extra_config: {}
+
+# --- installation ---
+blocklist_hold: 30              # seconds the Ansible address still passes AFTER the installation
+blocklist_rollback: 600         # without confirmation the blocks get disabled after this (0 = never)
+blocklist_confirm: true         # confirm automatically from a NEW SSH connection
+blocklist_bootstrap: true       # download the lists during installation
+blocklist_backup: true          # daily configuration snapshot
+blocklist_force_install: false  # run install.sh even when nothing changed

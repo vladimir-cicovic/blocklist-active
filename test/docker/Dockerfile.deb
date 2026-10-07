@@ -1,0 +1,17 @@
+# Test "server": Debian/Ubuntu with a real systemd and sshd.
+# nftables, python3 and curl are deliberately NOT installed - install.sh does that.
+ARG BASE=debian:13
+FROM ${BASE}
+ENV container=docker DEBIAN_FRONTEND=noninteractive
+RUN apt-get update \
+ && apt-get install -y --no-install-recommends systemd systemd-sysv dbus openssh-server \
+ && apt-get clean && rm -rf /var/lib/apt/lists/* \
+ && rm -f /usr/sbin/policy-rc.d \
+ && systemctl mask systemd-udevd.service systemd-udevd-kernel.socket systemd-udevd-control.socket \
+      systemd-modules-load.service sys-kernel-debug.mount sys-kernel-tracing.mount sys-kernel-config.mount \
+      getty.target console-getty.service systemd-firstboot.service systemd-remount-fs.service systemd-resolved.service \
+      apt-daily.timer apt-daily-upgrade.timer e2scrub_all.timer fstrim.timer motd-news.timer >/dev/null 2>&1 ; \
+    (systemctl enable ssh.service || systemctl enable ssh.socket) \
+ && mkdir -p /root/.ssh && chmod 700 /root/.ssh
+STOPSIGNAL SIGRTMIN+3
+CMD ["/sbin/init"]

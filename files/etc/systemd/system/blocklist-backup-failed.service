@@ -1,0 +1,6 @@
+[Unit]
+Description=Blocklist: record a failed configuration snapshot
+
+[Service]
+Type=oneshot
+ExecStart=/usr/local/sbin/blocklist failed blocklist-backup.service backup-error

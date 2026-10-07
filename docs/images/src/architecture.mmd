@@ -1,0 +1,38 @@
+%%{init: {"theme": "base", "flowchart": {"curve": "basis", "nodeSpacing": 35, "rankSpacing": 45, "wrappingWidth": 420}, "themeVariables": {"fontFamily": "Helvetica, Arial, sans-serif", "fontSize": "15px", "primaryColor": "#eef3fb", "primaryBorderColor": "#4a6fa5", "primaryTextColor": "#1d2733", "lineColor": "#5b6573", "clusterBkg": "#f7f9fc", "clusterBorder": "#b8c4d6"}}}%%
+flowchart LR
+    IN(["New inbound<br/>connection (IPv4)"])
+
+    subgraph KERNEL["nftables input hook - every table has policy accept"]
+        direction LR
+        G["<b>blocklist_guard</b><br/>priority -20<br/>address in the <i>hold</i> set?<br/>mark the packet"]
+        GEO["<b>geoblock</b><br/>priority -10<br/>blocked countries<br/>all ports"]
+        AB["<b>abuseblock</b><br/>priority -7<br/>public lists + own logs<br/>all ports"]
+        PX["<b>proxyblock</b><br/>priority -5<br/>proxy and Tor exits<br/>tcp 80 and 443"]
+        G --> GEO --> AB --> PX
+    end
+
+    IN --> G
+    PX --> SVC(["Services<br/>sshd, nginx, ..."])
+    GEO -. listed .-> DROP
+    AB -. listed .-> DROP
+    PX -. listed .-> DROP
+    DROP(["packet dropped"])
+
+    subgraph LEGEND[" "]
+        direction LR
+        RULES["<b>Rule order in every blocking table</b><br/>1. established or related: accept<br/>2. loopback: accept<br/>3. marked by the guard (held): accept<br/>4. allowlist: accept<br/>5. listed: drop"]
+        ALLOW["<b>Allowlist - wins over every list</b><br/>- countries in WHITELIST_CC<br/>- Googlebot and Bingbot ranges<br/>- private and reserved ranges<br/>- server and owner addresses"]
+    end
+    IN ~~~ LEGEND
+
+    classDef guard fill:#fff4d6,stroke:#c99a2e,color:#3d2f0b
+    classDef block fill:#eef3fb,stroke:#4a6fa5,color:#1d2733
+    classDef drop fill:#fde4e4,stroke:#c0392b,color:#7b1d14
+    classDef ok fill:#e3f4e8,stroke:#2e8b57,color:#173d27
+    classDef note fill:#ffffff,stroke:#b8c4d6,color:#1d2733,text-align:left
+    class G guard
+    class GEO,AB,PX block
+    class DROP drop
+    class SVC,IN ok
+    class RULES,ALLOW note
+    style LEGEND fill:#ffffff,stroke:#ffffff

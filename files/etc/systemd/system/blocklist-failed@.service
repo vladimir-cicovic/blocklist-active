@@ -1,0 +1,6 @@
+[Unit]
+Description=Blocklist: record a failed list refresh (%i)
+
+[Service]
+Type=oneshot
+ExecStart=/usr/local/sbin/blocklist failed blocklist-update@%i.service last-error

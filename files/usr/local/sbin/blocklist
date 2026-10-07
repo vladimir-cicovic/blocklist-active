@@ -1,0 +1,248 @@
+#!/bin/bash
+# blocklist - manage the protection: status, held addresses, install confirmation,
+# disabling and enabling. Run as root.
+set -u
+# shellcheck source=/dev/null
+. /usr/local/lib/blocklist/common.sh
+
+usage() {
+  cat <<'EOF'
+Usage: blocklist <command> [arguments]
+
+  status                  tables, held addresses, rollback timer, last checks
+  check IP...             would the address be blocked, and by which table
+  hold IP [SECONDS]       let an address through every block for a while (30)
+  release IP              end a hold immediately
+  holds                   held addresses with the time left
+  confirm                 confirm the installation (stop the rollback timer)
+  arm-rollback SECONDS    timer that disables the blocks unless confirmed
+  disable [REASON]        disable the blocks; they stay disabled across reboots
+  enable                  enable the blocks from /etc/nftables.d
+  load                    load the tables from /etc/nftables.d (no download)
+  update MODE             refresh the lists: geo | abuse | proxy | all | rebuild
+  notify [MESSAGE]        send a test notification
+  version
+EOF
+}
+
+need_root() { [ "$(id -u)" = 0 ] || { echo "blocklist: root required" >&2; exit 1; }; }
+
+state_line() {   # state_line FILE -> print its content on one line
+  [ -s "$1" ] && tr '\n' ' ' < "$1" | sed 's/ *$//'
+}
+
+cmd_status() {
+  need_root
+  echo "blocklist $BL_VERSION  |  config: $CONF"
+  if [ -e "$STATE/disabled" ]; then
+    echo "STATE: DISABLED  ($(state_line "$STATE/disabled"))"
+    echo "       enable with: blocklist enable"
+  else
+    echo "STATE: enabled"
+  fi
+  echo
+  # a single 'nft list ruleset' (every nft call loads the whole ruleset, ~1.5 s)
+  local rs
+  rs=$(nft list ruleset 2>/dev/null)
+  printf '%s\n' "$rs" | awk -v want="$GUARD $TABLES" '
+    /^table inet /        { t = $3; seen[t] = 1 }
+    /^\tset /             { s = $2; inset = 1; has = 0; n = 0; next }
+    inset && /elements = \{/ { has = 1 }
+    inset                 { if (has) n += gsub(/,/, ",")
+                            if ($0 ~ /^\t\}/) { if (has) n++; if (s != "allowed" && s != "allowlist") cnt[t] += n; inset = 0 } }
+    /type filter hook input priority/ { p = $0; sub(/.*priority /, "", p); sub(/;.*/, "", p); pri[t] = p }
+    / drop/ && /packets/  { x = $0; sub(/.*packets /, "", x); sub(/ .*/, "", x); drops[t] += x }
+    END {
+      printf "  %-16s %-12s %12s %14s\n", "TABLE", "PRIORITY", "ELEMENTS", "DROPPED"
+      k = split(want, w, " ")
+      for (i = 1; i <= k; i++) {
+        t = w[i]
+        if (seen[t]) printf "  %-16s %-12s %12d %14d\n", t, pri[t], cnt[t], drops[t]
+        else         printf "  %-16s %-12s %12s %14s\n", t, "-", "NOT LOADED", "-"
+      }
+    }'
+  echo
+  echo "Held addresses:"
+  cmd_holds | sed 's/^/  /'
+  echo
+  if systemctl is-active --quiet blocklist-rollback.timer 2>/dev/null; then
+    echo "ROLLBACK ARMED: $(systemctl list-timers blocklist-rollback.timer --no-legend 2>/dev/null | awk '{print $1, $2, $3, "(in", $4, $5")"}')"
+    echo "  confirm with: blocklist confirm"
+  else
+    echo "Rollback: not armed"
+  fi
+  echo
+  local f
+  for f in last-success last-error health health-error last-verify cert-error backup backup-error; do
+    [ -s "$STATE/$f" ] && printf '  %-13s %s\n' "$f" "$(state_line "$STATE/$f")"
+  done
+  echo
+  systemctl list-timers 'blocklist-*' certbot-canary.timer --no-pager 2>/dev/null | sed 's/^/  /'
+}
+
+cmd_motd() {
+  # fast: reads state files only, never asks nftables
+  [ -d "$STATE" ] || exit 0
+  local err=0 f
+  if [ -s "$STATE/disabled" ]; then
+    printf '\n\033[1;31m  PROTECTION DISABLED:\033[0m %s\n' "$(state_line "$STATE/disabled")"
+    printf '    enable with: blocklist enable\n'
+    err=1
+  fi
+  for f in last-error health-error cert-error rootkit-error backup-error; do
+    if [ -s "$STATE/$f" ]; then
+      [ $err = 0 ] && printf '\n\033[1;31m  WARNING - the automation reports a problem:\033[0m\n'
+      err=1
+      printf '    %s\n' "$(head -3 "$STATE/$f" | tr '\n' ' ')"
+    fi
+  done
+  if [ -s "$STATE/last-verify" ] && [ "$(head -1 "$STATE/last-verify")" != OK ]; then
+    printf '    list verification FAILED - see %s\n' "$STATE/last-verify"
+    err=1
+  fi
+  if [ $err = 1 ]; then
+    printf '    details: blocklist status | journalctl -t blocklist -t blocklist-health -n 50\n\n'
+    return 0
+  fi
+  if [ -s "$STATE/health" ]; then
+    # shellcheck source=/dev/null
+    ( . "$STATE/health" 2>/dev/null
+      printf '\n  Blocks active | attackers: %s | dropped: geo %s, attackers %s, proxy %s\n' \
+        "${attackers:-?}" "${dropped_geo:-0}" "${dropped_attackers:-0}" "${dropped_proxy:-0}"
+      printf '  Site %s | certificate valid %s more days | last check %s\n' \
+        "${site:-?}" "${cert_days:-?}" "${time:-?}" )
+  fi
+  if [ -s "$STATE/backup" ]; then
+    ( . "$STATE/backup" 2>/dev/null
+      printf '  Last backup %s (%s) | snapshots kept: %s\n' "${time:-?}" "${size:-?}" "${total_snapshots:-?}" )
+  fi
+  echo
+}
+
+cmd_holds() {
+  local out
+  out=$(nft list set inet "$GUARD" hold 2>/dev/null | tr ',' '\n' | grep -oE '[0-9]+(\.[0-9]+){3} timeout [^ ]+ expires [^ }]+')
+  if [ -n "$out" ]; then echo "$out"; else echo "(none)"; fi
+}
+
+cmd_check() {   # cmd_check IP [IP...]  -> exit 1 if at least one is blocked
+  need_root
+  [ $# -gt 0 ] || { echo "usage: blocklist check IPv4 [IPv4...]" >&2; exit 2; }
+  local ip held
+  for ip in "$@"; do
+    bl_is_ipv4 "$ip" || { echo "not an IPv4 address: $ip" >&2; exit 2; }
+  done
+  if [ -e "$STATE/disabled" ]; then
+    echo "blocks are DISABLED ($(state_line "$STATE/disabled")) - nothing is blocked"
+    return 0
+  fi
+  held=$(nft list set inet "$GUARD" hold 2>/dev/null)
+  for ip in "$@"; do
+    case "$held" in *" $ip timeout"*) echo "$ip: HELD - currently passes every block" ;; esac
+  done
+  python3 "$GEOIP/check-ip.py" "$@"
+}
+
+cmd_arm_rollback() {
+  need_root
+  local sec="${1:-600}"
+  case "$sec" in ''|*[!0-9]*) echo "usage: blocklist arm-rollback SECONDS" >&2; exit 2 ;; esac
+  systemctl stop blocklist-rollback.timer 2>/dev/null
+  systemctl reset-failed blocklist-rollback.timer blocklist-rollback.service 2>/dev/null
+  # AccuracySec=1s: the default systemd timer tolerance is a whole minute
+  systemd-run --quiet --unit=blocklist-rollback --on-active="${sec}s" \
+    --timer-property=AccuracySec=1s \
+    /usr/local/sbin/blocklist rollback "installation not confirmed within ${sec}s"
+}
+
+cmd_confirm() {
+  need_root
+  if systemctl is-active --quiet blocklist-rollback.timer 2>/dev/null; then
+    systemctl stop blocklist-rollback.timer
+    systemctl reset-failed blocklist-rollback.timer blocklist-rollback.service 2>/dev/null
+    bl_log "installation confirmed, rollback timer stopped"
+    echo "CONFIRMED: rollback timer stopped, the blocks stay in place."
+  else
+    echo "no rollback timer is active"
+  fi
+}
+
+cmd="${1:-status}"
+[ $# -gt 0 ] && shift
+case "$cmd" in
+  status)        cmd_status ;;
+  motd)          cmd_motd ;;
+  check)         cmd_check "$@" ;;
+  holds)         need_root; cmd_holds ;;
+  hold)
+    need_root
+    ip="${1:-}"; sec="${2:-30}"
+    case "$sec" in ''|*[!0-9]*) echo "SECONDS must be a number" >&2; exit 2 ;; esac
+    bl_hold_set "$ip" "$sec" || { echo "usage: blocklist hold IPv4 [SECONDS]" >&2; exit 2; }
+    bl_log "holding $ip for ${sec}s"
+    ;;
+  release)
+    need_root
+    bl_hold_set "${1:-}" 0 || { echo "usage: blocklist release IPv4" >&2; exit 2; }
+    bl_log "hold released for ${1:-}"
+    ;;
+  confirm)       cmd_confirm ;;
+  arm-rollback)  cmd_arm_rollback "$@" ;;
+  rollback)
+    # called by the rollback timer; does not wait for the lock - it must act immediately
+    need_root
+    bl_disable "${1:-rollback}"
+    bl_log "ROLLBACK: blocks disabled (${1:-rollback}). Enable with: blocklist enable"
+    bl_notify "rollback" "blocks disabled: ${1:-rollback}"
+    ;;
+  disable)
+    need_root
+    bl_lock -w 600 || true
+    bl_disable "${1:-disabled manually}"
+    bl_log "blocks disabled: ${1:-manually}"
+    ;;
+  enable)
+    need_root
+    bl_lock -w 600 || true
+    rm -f "$STATE/disabled"
+    bl_load_tables && bl_log "blocks enabled" || { bl_log "ERROR while loading the tables"; exit 1; }
+    ;;
+  load)
+    need_root
+    bl_lock -w 600 || true
+    bl_load_tables || exit 1
+    ;;
+  unload)
+    need_root
+    bl_unload_tables
+    ;;
+  cert-pre)
+    # Let's Encrypt validates HTTP-01 from addresses it does not publish; if one of
+    # them is listed, the renewal fails silently. Geo blocks stay in place.
+    need_root
+    mkdir -p "$STATE"; date +%s > "$STATE/cert-window"
+    nft delete table inet abuseblock 2>/dev/null
+    nft delete table inet proxyblock 2>/dev/null
+    logger -t certbot-hook "attacker and proxy blocks removed temporarily for validation"
+    ;;
+  cert-post)
+    need_root
+    bl_load_tables
+    rm -f "$STATE/cert-window"
+    logger -t certbot-hook "blocks restored from $NFT_DIR"
+    ;;
+  failed)
+    # called by OnFailure= units: blocklist failed NAME [STATE_FILE]
+    need_root
+    name="${1:-unknown}"; f="${2:-last-error}"
+    mkdir -p "$STATE"
+    echo "$(date '+%F %T') FAILED: $name" > "$STATE/$f"
+    bl_log "FAILURE: $name"
+    bl_notify "failure" "$name failed - see: journalctl -u $name"
+    ;;
+  update)        exec /usr/local/sbin/blocklist-update.sh "$@" ;;
+  notify)        bl_notify "test" "${1:-test notification}"; echo "sent (if a channel is configured in $CONF)" ;;
+  version|-v|--version) echo "$BL_VERSION" ;;
+  help|-h|--help) usage ;;
+  *) usage; exit 2 ;;
+esac

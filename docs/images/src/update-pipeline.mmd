@@ -1,0 +1,33 @@
+%%{init: {"theme": "base", "flowchart": {"curve": "basis", "nodeSpacing": 30, "rankSpacing": 40, "wrappingWidth": 260}, "themeVariables": {"fontFamily": "Helvetica, Arial, sans-serif", "fontSize": "15px", "primaryColor": "#eef3fb", "primaryBorderColor": "#4a6fa5", "primaryTextColor": "#1d2733", "lineColor": "#5b6573", "clusterBkg": "#f7f9fc", "clusterBorder": "#b8c4d6"}}}%%
+flowchart TB
+    T(["systemd timer: attackers daily, countries and proxies weekly"])
+
+    subgraph PREP["Prepare - the kernel is not touched yet"]
+        direction LR
+        DL["<b>1. Download</b><br/>a failed download<br/>keeps the previous list"] --> GEN["<b>2. Generate</b><br/>.nft files into<br/>a staging directory"]
+        GEN --> VER{"<b>3. Verify</b><br/>sizes, allowlist,<br/>hold rule"}
+        VER -->|pass| SYN{"<b>4. nft -c</b><br/>syntax"}
+        VER -->|fail| STOP
+        SYN -->|fail| STOP
+        STOP["<b>Stop</b> - nothing is applied<br/>last-error + notification"]
+    end
+
+    subgraph APPLY["Apply - with an automatic way back"]
+        direction LR
+        APP["<b>5. Apply</b><br/>load the new tables<br/>into the kernel"] --> SITE{"<b>6. Site check</b><br/>SITE_URL answers 2xx?<br/>redirects followed"}
+        SITE -->|yes| PROM["<b>7. Promote</b><br/>staging becomes<br/>/etc/nftables.d"]
+        PROM --> DONE(["Done<br/>health check every 6 hours"])
+        SITE -->|no| REST["<b>Roll back</b><br/>reload the last-known-good<br/>lists from /etc/nftables.d<br/>last-error + notification"]
+    end
+
+    T --> PREP
+    PREP -->|all checks passed| APPLY
+
+    classDef step fill:#eef3fb,stroke:#4a6fa5,color:#1d2733
+    classDef gate fill:#fff4d6,stroke:#c99a2e,color:#3d2f0b
+    classDef good fill:#e3f4e8,stroke:#2e8b57,color:#173d27
+    classDef bad fill:#fde4e4,stroke:#c0392b,color:#7b1d14
+    class DL,GEN,APP step
+    class VER,SYN,SITE gate
+    class PROM,DONE,T good
+    class REST,STOP bad

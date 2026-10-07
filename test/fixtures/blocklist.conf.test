@@ -1,0 +1,13 @@
+# Config for the test matrix. Deliberately includes:
+#  - a SITE_URL that redirects (302 -> 200) - regression test for the 1.x bug
+#  - countries whose codes are nftables keywords (ge, lt)
+#  - two allowlisted countries (ba hr)
+#  - an empty SERVER_IPS - the installer detects it
+SITE_URL="http://bl-site/r"
+SSH_PORT=""
+SERVER_IPS=""
+OWNER_IPS="198.51.100.7"
+COUNTRIES="ir ru cn br co bg ro sc ge lt"
+WHITELIST_CC="ba hr"
+LIST_CACHE_DIR="/var/cache/blocklist-src"
+LIST_CACHE_MAX_AGE="86400"

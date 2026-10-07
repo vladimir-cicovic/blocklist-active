@@ -1,0 +1,15 @@
+# private - production data, never on GitHub
+server-snapshot-*/
+server-snapshot-*.tgz
+seed/
+configs/
+ansible/inventory.ini
+ansible/host_vars/
+ansible/group_vars/
+
+# generated
+dist/
+test/results/
+test/.keys/
+__pycache__/
+*.retry

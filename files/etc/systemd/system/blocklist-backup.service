@@ -1,0 +1,11 @@
+[Unit]
+Description=Blocklist: server configuration snapshot (blocks, web server, certificates)
+After=network-online.target
+OnFailure=blocklist-backup-failed.service
+
+[Service]
+Type=oneshot
+ExecStart=/usr/local/sbin/blocklist-backup.sh
+TimeoutStartSec=900
+Nice=10
+IOSchedulingClass=idle

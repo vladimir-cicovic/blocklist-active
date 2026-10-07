@@ -1,0 +1,17 @@
+# {{ ansible_managed }}
+# Change the Ansible variables (blocklist_*), not this file.
+SITE_URL="{{ blocklist_site_url }}"
+SSH_PORT="{{ blocklist_ssh_port }}"
+SERVER_IPS="{{ (blocklist_server_ips or ansible_all_ipv4_addresses | default([])) | join(' ') }}"
+OWNER_IPS="{{ blocklist_owner_ips | join(' ') }}"
+COUNTRIES="{{ blocklist_countries | join(' ') }}"
+WHITELIST_CC="{{ blocklist_whitelist_cc | join(' ') }}"
+NOTIFY_NTFY_URL="{{ blocklist_notify_ntfy_url }}"
+NOTIFY_TELEGRAM_TOKEN="{{ blocklist_notify_telegram_token }}"
+NOTIFY_TELEGRAM_CHAT="{{ blocklist_notify_telegram_chat }}"
+NOTIFY_EMAIL="{{ blocklist_notify_email }}"
+BACKUP_EXTRA="{{ blocklist_backup_extra | join(' ') }}"
+BACKUP_KEEP="{{ blocklist_backup_keep }}"
+{% for k, v in blocklist_extra_config.items() %}
+{{ k }}="{{ v }}"
+{% endfor %}

@@ -1,0 +1,7 @@
+[Unit]
+Description=Blocklist: health check (tables, site, SSH, certificate)
+After=blocklist.service
+
+[Service]
+Type=oneshot
+ExecStart=/usr/local/sbin/blocklist-health.sh
